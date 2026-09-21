@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package telemetry.v1;
+
+option java_multiple_files = true;
+option java_package = "com.ijhad.flightrecorder.telemetry.proto";
+option java_outer_classname = "TelemetryProto";
+
+import "google/protobuf/timestamp.proto";
+
+service TelemetryIngestionService {
+  rpc StreamReadings(stream TelemetryReading) returns (IngestionSummary);
+}
+
+message TelemetryReading {
+  string reading_id = 1;
+  string session_id = 2;
+  string vehicle_id = 3;
+  google.protobuf.Timestamp recorded_at = 4;
+  double latitude = 5;
+  double longitude = 6;
+  double speed_kph = 7;
+  double battery_percent = 8;
+  double motor_temperature_celsius = 9;
+}
+
+message IngestionSummary {
+  int64 accepted_count = 1;
+  int64 rejected_count = 2;
+}
