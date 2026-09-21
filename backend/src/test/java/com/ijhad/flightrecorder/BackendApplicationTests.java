@@ -23,7 +23,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import com.ijhad.flightrecorder.session.SessionRepository;
 
 @Testcontainers
-@SpringBootTest
+@SpringBootTest(properties = "spring.kafka.listener.auto-startup=false")
 @AutoConfigureMockMvc
 class BackendApplicationTests {
 

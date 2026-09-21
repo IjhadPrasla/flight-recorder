@@ -84,12 +84,14 @@ public class TelemetryGrpcService
         try {
             UUID.fromString(reading.getReadingId());
             UUID.fromString(reading.getSessionId());
-            UUID.fromString(reading.getVehicleId());
         } catch (IllegalArgumentException exception) {
             return false;
         }
 
-        return reading.hasRecordedAt()
+        return !reading.getVehicleId().isBlank()
+                && reading.getVehicleId().length() <= 100
+                && reading.hasRecordedAt()
+                && reading.getSequenceNumber() >= 0
                 && reading.getLatitude() >= -90
                 && reading.getLatitude() <= 90
                 && reading.getLongitude() >= -180
