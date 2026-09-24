@@ -3,6 +3,8 @@
 [![CI](https://github.com/IjhadPrasla/flight-recorder/actions/workflows/ci.yml/badge.svg)](https://github.com/IjhadPrasla/flight-recorder/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
+![Flight Recorder telemetry dashboard](docs/dashboard.png)
+
 A real-time vehicle telemetry ingestion, persistence, replay, and alert-monitoring platform.
 
 Flight Recorder accepts client-streamed telemetry over gRPC, publishes events through Apache Kafka, stores readings in PostgreSQL, detects unsafe operating conditions, and exposes session data through REST APIs to a React dashboard.
