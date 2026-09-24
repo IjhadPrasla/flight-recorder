@@ -1,2 +1,6 @@
 .vscode/
 .env
+simulator/.venv/
+__pycache__/
+simulator/telemetry_pb2.py
+simulator/telemetry_pb2_grpc.py
