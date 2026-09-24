@@ -7,25 +7,25 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.UUID;
-
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
-
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
-
 import com.ijhad.flightrecorder.session.SessionRepository;
+import java.time.Instant;
+import com.google.protobuf.Timestamp;
+import com.ijhad.flightrecorder.telemetry.TelemetryKafkaConsumer;
+import com.ijhad.flightrecorder.telemetry.proto.TelemetryReading;
 
 @Testcontainers
 @SpringBootTest(properties = "spring.kafka.listener.auto-startup=false")
@@ -46,8 +46,12 @@ class BackendApplicationTests {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private TelemetryKafkaConsumer telemetryKafkaConsumer;
+
     @BeforeEach
     void clearDatabase() {
+        jdbcTemplate.update("DELETE FROM alerts");
         jdbcTemplate.update("DELETE FROM telemetry_readings");
         jdbcTemplate.update("DELETE FROM vehicles");
         sessionRepository.deleteAll();
@@ -190,6 +194,98 @@ class BackendApplicationTests {
                         .value(1))
                 .andExpect(jsonPath("$[1].offsetMillis")
                         .value(250));
+    }
+
+    @Test
+    void createsAlertsForDangerousTelemetryAndIgnoresDuplicates()
+            throws Exception {
+
+        mockMvc.perform(
+                        post("/api/sessions")
+                                .contentType(APPLICATION_JSON)
+                                .content("""
+                                        {
+                                        "name": "Alert Integration Test"
+                                        }
+                                        """))
+                .andExpect(status().isCreated());
+
+        UUID sessionId = sessionRepository
+                .findAll()
+                .getFirst()
+                .getId();
+
+        Instant now = Instant.now();
+
+        Timestamp recordedAt = Timestamp.newBuilder()
+                .setSeconds(now.getEpochSecond())
+                .setNanos(now.getNano())
+                .build();
+
+        TelemetryReading reading = TelemetryReading.newBuilder()
+                .setReadingId(UUID.randomUUID().toString())
+                .setSessionId(sessionId.toString())
+                .setVehicleId("vehicle-danger")
+                .setRecordedAt(recordedAt)
+                .setSequenceNumber(0)
+                .setLatitude(30.2672)
+                .setLongitude(-97.7431)
+                .setSpeedKph(45.0)
+                .setBatteryPercent(10.0)
+                .setMotorTemperatureCelsius(95.0)
+                .build();
+
+        telemetryKafkaConsumer.consume(reading.toByteArray());
+        telemetryKafkaConsumer.consume(reading.toByteArray());
+
+        Integer readingCount = jdbcTemplate.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM telemetry_readings
+                WHERE session_id = ?
+                """,
+                Integer.class,
+                sessionId);
+
+        Integer alertCount = jdbcTemplate.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM alerts
+                WHERE session_id = ?
+                """,
+                Integer.class,
+                sessionId);
+
+        Integer lowBatteryCount = jdbcTemplate.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM alerts
+                WHERE session_id = ?
+                AND alert_type = 'LOW_BATTERY'
+                """,
+                Integer.class,
+                sessionId);
+
+        Integer temperatureCount = jdbcTemplate.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM alerts
+                WHERE session_id = ?
+                AND alert_type = 'HIGH_MOTOR_TEMPERATURE'
+                """,
+                Integer.class,
+                sessionId);
+
+        assertEquals(1, readingCount);
+        assertEquals(2, alertCount);
+        assertEquals(1, lowBatteryCount);
+        assertEquals(1, temperatureCount);
+
+        mockMvc.perform(
+                        get("/api/sessions/{sessionId}/alerts", sessionId)
+                                .param("limit", "100"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2));
     }
 
     private void insertReading(

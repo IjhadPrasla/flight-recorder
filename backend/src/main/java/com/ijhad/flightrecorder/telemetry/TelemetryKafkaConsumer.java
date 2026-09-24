@@ -21,6 +21,9 @@ public class TelemetryKafkaConsumer {
     private static final Logger log =
             LoggerFactory.getLogger(TelemetryKafkaConsumer.class);
 
+    private static final double LOW_BATTERY_THRESHOLD = 20.0;
+    private static final double HIGH_TEMPERATURE_THRESHOLD = 80.0;
+
     private final JdbcTemplate jdbcTemplate;
     private final SessionRepository sessionRepository;
 
@@ -115,8 +118,87 @@ public class TelemetryKafkaConsumer {
                     "Persisted telemetry reading {} for vehicle {}",
                     eventId,
                     reading.getVehicleId());
+
+            createAlerts(
+                    reading,
+                    eventId,
+                    sessionId,
+                    recordedAt);
         } else {
             log.debug("Ignored duplicate telemetry reading {}", eventId);
+        }
+    }
+
+    private void createAlerts(
+            TelemetryReading reading,
+            UUID eventId,
+            UUID sessionId,
+            OffsetDateTime triggeredAt) {
+
+        if (reading.getBatteryPercent() < LOW_BATTERY_THRESHOLD) {
+            insertAlert(
+                    eventId,
+                    sessionId,
+                    reading.getVehicleId(),
+                    "LOW_BATTERY",
+                    "Battery at %.1f%%, below %.1f%% threshold"
+                            .formatted(
+                                    reading.getBatteryPercent(),
+                                    LOW_BATTERY_THRESHOLD),
+                    triggeredAt);
+        }
+
+        if (reading.getMotorTemperatureCelsius()
+                > HIGH_TEMPERATURE_THRESHOLD) {
+            insertAlert(
+                    eventId,
+                    sessionId,
+                    reading.getVehicleId(),
+                    "HIGH_MOTOR_TEMPERATURE",
+                    "Motor temperature at %.1f C, above %.1f C threshold"
+                            .formatted(
+                                    reading.getMotorTemperatureCelsius(),
+                                    HIGH_TEMPERATURE_THRESHOLD),
+                    triggeredAt);
+        }
+    }
+
+    private void insertAlert(
+            UUID eventId,
+            UUID sessionId,
+            String vehicleId,
+            String alertType,
+            String message,
+            OffsetDateTime triggeredAt) {
+
+        int inserted = jdbcTemplate.update(
+                """
+                INSERT INTO alerts (
+                    id,
+                    event_id,
+                    session_id,
+                    vehicle_id,
+                    alert_type,
+                    message,
+                    triggered_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (event_id, alert_type) DO NOTHING
+                """,
+                UUID.randomUUID(),
+                eventId,
+                sessionId,
+                vehicleId,
+                alertType,
+                message,
+                triggeredAt);
+
+        if (inserted == 1) {
+            log.warn(
+                    "Created {} alert for vehicle {}: {}",
+                    alertType,
+                    vehicleId,
+                    message);
         }
     }
 }
